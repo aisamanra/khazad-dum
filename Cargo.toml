@@ -1,0 +1,14 @@
+[package]
+name = "khazad-dum"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+digest = "0.11.2"
+gumdrop = "0.8.1"
+hexhex = "1.1.1"
+ignore = "0.4.25"
+md-5 = "0.11.0"
+rayon = "1.12.0"
+sha2 = "0.11.0"
+walkdir = "2.5.0"
