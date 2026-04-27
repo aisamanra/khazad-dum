@@ -2,30 +2,22 @@ use std::fs;
 use std::io::Read;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{Sender, channel};
 
 use digest::Digest;
-use gumdrop::Options;
+
+mod opts;
 
 const BUFSIZE: usize = 512;
 
-#[derive(Debug, Options)]
-struct Opts {
-    #[options(help = "how many threads to run", short = "j", long = "jobs")]
-    jobs: Option<usize>,
-
-    #[options(free)]
-    root: Option<String>,
-}
-
 #[derive(Debug)]
-struct Error {
+struct KhzdError {
     msg: String,
 }
 
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Error {
-        Error {
+impl From<std::io::Error> for KhzdError {
+    fn from(err: std::io::Error) -> KhzdError {
+        KhzdError {
             msg: format!("IO error: {}", err),
         }
     }
@@ -42,11 +34,11 @@ struct Line {
 #[derive(Debug)]
 enum Output {
     Warning(String),
-    Error(Error),
+    Error(KhzdError),
     Entry(Line),
 }
 
-fn process_file(root: &Path, path: &Path) -> Result<Line, Error> {
+fn process_file(opts: &opts::Opts, path: &Path) -> Result<Line, KhzdError> {
     let size = fs::metadata(path)?.size();
     let mut md5_hash = md5::Md5::new();
     let mut sha256_hash = sha2::Sha256::new();
@@ -65,30 +57,41 @@ fn process_file(root: &Path, path: &Path) -> Result<Line, Error> {
     }
     let md5 = md5_hash.finalize().into();
     let sha256 = sha256_hash.finalize().into();
+    let path = if opts.absolute {
+        opts.root.join(path)
+    } else {
+        path.into()
+    };
     Ok(Line {
         size,
         md5,
         sha256,
-        path: root.join(path),
+        path,
     })
 }
 
-fn main() {
-    let opts = Opts::parse_args_default_or_exit();
+fn walk_loop(opts: &opts::Opts, send: Sender<Output>) -> Result<(), KhzdError> {
+    let mut walker = ignore::WalkBuilder::new(&opts.root);
+    let walker = walker.threads(opts.jobs);
+    if let Some(f) = &opts.ignore
+        && let Some(err) = walker.add_ignore(f)
+    {
+        return Err(KhzdError {
+            msg: format!("Unable to read ignore file {}: {}", &f, err),
+        });
+    };
+    walker.hidden(!opts.include_hidden);
 
-    let root = &fs::canonicalize(opts.root.unwrap_or(".".to_owned())).unwrap();
-    let jobs = opts.jobs.unwrap_or(32);
-
-    let walker = ignore::WalkBuilder::new(root)
-        .threads(jobs)
-        .build_parallel();
-    let (send, recv) = channel();
+    let walker = walker.build_parallel();
     walker.run(|| {
         let s = send.clone();
         Box::new(move |result| {
-            let Ok(entry) = result else {
-                //???
-                return ignore::WalkState::Continue;
+            let entry = match result {
+                Ok(e) => e,
+                Err(err) => {
+                    s.send(Output::Warning(err.to_string())).unwrap();
+                    return ignore::WalkState::Continue;
+                }
             };
 
             let Some(file_type) = entry.file_type() else {
@@ -101,7 +104,7 @@ fn main() {
             };
 
             if file_type.is_file() {
-                match process_file(root, entry.path()) {
+                match process_file(opts, entry.path()) {
                     Ok(line) => s.send(Output::Entry(line)).unwrap(),
                     Err(err) => s.send(Output::Error(err)).unwrap(),
                 }
@@ -109,19 +112,33 @@ fn main() {
             ignore::WalkState::Continue
         })
     });
-    drop(send);
 
+    Ok(())
+}
+
+fn main() {
+    let opts = opts::Opts::parse();
+
+    let (send, recv) = channel();
     let mut warnings = Vec::new();
     let mut errors = Vec::new();
+
+    if let Err(e) = walk_loop(&opts, send) {
+        errors.push(e);
+    };
+
     for output in recv {
         match output {
-            Output::Entry(l) => println!(
-                "{},{},{},{}",
-                l.size,
-                hexhex::hex(l.md5),
-                hexhex::hex(l.sha256),
-                l.path.display()
-            ),
+            Output::Entry(l) => {
+                print!("{},", l.size);
+                if opts.compute_hashes.md5 {
+                    print!("{},", hexhex::hex(l.md5));
+                }
+                if opts.compute_hashes.sha256 {
+                    print!("{},", hexhex::hex(l.sha256));
+                }
+                println!("{}", l.path.display());
+            }
             Output::Warning(l) => warnings.push(l),
             Output::Error(e) => errors.push(e),
         }
