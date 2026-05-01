@@ -12,3 +12,11 @@ md-5 = "0.11.0"
 rayon = "1.12.0"
 sha2 = "0.11.0"
 walkdir = "2.5.0"
+
+[[test]]
+name = "basic"
+path = "test/basic.rs"
+
+[dev-dependencies]
+assert_cmd = "2.2.1"
+tempdir = "0.3.7"
