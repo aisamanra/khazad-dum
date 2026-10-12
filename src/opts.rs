@@ -6,19 +6,32 @@ struct RawOpts {
     #[options(help = "how many threads to run", short = "j", long = "jobs")]
     jobs: Option<usize>,
 
-    #[options(help = "include hidden files", short = "h", long = "include-hidden")]
+    #[options(help = "include hidden files", short = "x", long = "include-hidden")]
     include_hidden: bool,
 
     #[options(help = "make files absolute in output", short = "a", long = "absolute")]
     absolute: bool,
 
-    #[options(help = "custom ignore file", short = "i", long = "ignore")]
+    #[options(
+        help = "custom ignore file",
+        short = "i",
+        long = "ignore",
+        meta = "[FILE]"
+    )]
     ignore: Option<String>,
 
-    #[options(help = "which hashes to use", short = "c", long = "compute-hashes")]
+    #[options(
+        help = "which hashes to use",
+        short = "c",
+        long = "compute-hashes",
+        meta = "(md5,sha256)"
+    )]
     compute_hashes: Option<String>,
 
-    #[options(free)]
+    #[options(short = "h", long = "help")]
+    help: bool,
+
+    #[options(help = "the root directory in which to run", free)]
     root: Option<String>,
 }
 

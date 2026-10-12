@@ -26,7 +26,7 @@ pub fn walk_loop(opts: &Opts, send: Sender<Output>) -> Result<(), Error> {
     if let Some(f) = &opts.ignore
         && let Some(err) = walker.add_ignore(f)
     {
-        return Err(format!("Unable to read ignore file {}: {}", &f, err).into());
+        return Err(format!("Unable to read ignore file {}: {}", f, err).into());
     };
     walker.hidden(!opts.include_hidden);
 
